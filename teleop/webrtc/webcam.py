@@ -8,7 +8,7 @@ import ssl
 import cv2
 import numpy as np
 import time
-from pyzed import sl
+# from pyzed import sl
 from aiortc import MediaStreamTrack
 import av
 

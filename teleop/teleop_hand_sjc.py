@@ -11,12 +11,40 @@ from Preprocessor import VuerPreprocessor
 from constants_vuer import tip_indices
 from dex_retargeting.retargeting_config import RetargetingConfig
 from pytransform3d import rotations
-
+import socket
 from pathlib import Path
 import argparse
 import time
 import yaml
 from multiprocessing import Array, Process, shared_memory, Queue, Manager, Event, Semaphore
+# def apply_dynamic_offset(qpos, offset, joint_min_values, joint_max_values):
+#     target_indices = np.arange(6)  # 前6个关节校准
+#     current_range_ratio = np.abs(qpos[target_indices] - offset) / (joint_max_values - offset)
+#     # 限制current_range_ratio在0-1之间
+#     current_range_ratio=np.clip(current_range_ratio,0,1)
+#     dynamic_offset = offset * (1 - current_range_ratio)  # 线性动态偏移
+#     qpos[target_indices] -= dynamic_offset
+#     # qpos[target_indices] = np.clip(qpos[target_indices], joint_min_values, joint_max_values)
+#     return qpos
+def apply_dynamic_offset(qpos, offset, joint_min_values, joint_max_values):
+    target_indices = np.arange(6)  # 前6个关节进行偏移校准
+
+    # 计算每个关节当前归一化位置（范围在 0~1）
+    normalized_qpos = (qpos[target_indices] - joint_min_values) / (joint_max_values - joint_min_values)
+
+    # 设定一个“修正区间”：只在张开状态（小于阈值）下进行偏移
+    threshold = 0.4  # 在归一化范围内，小于0.4的视为“张开”
+    correction_strength = 1.0 - normalized_qpos / threshold
+    correction_strength = np.clip(correction_strength, 0.0, 1.0)  # 只在小角度下有偏移
+
+    # 计算动态偏移：越接近关节张开（小角度），越强；越弯曲，偏移趋近为 0
+    dynamic_offset = offset * correction_strength
+
+    # 应用偏移并确保不越界
+    qpos[target_indices] -= dynamic_offset
+    qpos[target_indices] = np.clip(qpos[target_indices], joint_min_values, joint_max_values)
+
+    return qpos
 
 class VuerTeleop:
     def __init__(self, config_file_path):
@@ -52,8 +80,33 @@ class VuerTeleop:
                                     rotations.quaternion_from_matrix(left_wrist_mat[:3, :3])[[1, 2, 3, 0]]])
         right_pose = np.concatenate([right_wrist_mat[:3, 3] + np.array([-0.6, 0, 1.6]),
                                      rotations.quaternion_from_matrix(right_wrist_mat[:3, :3])[[1, 2, 3, 0]]])
-        left_qpos = self.left_retargeting.retarget(left_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
-        right_qpos = self.right_retargeting.retarget(right_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
+        # left_qpos = self.left_retargeting.retarget(left_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
+        #
+        # right_qpos = self.right_retargeting.retarget(right_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
+        # 示例 offset：每个手都可能不同，你可以自定义
+        # offset = np.array([ 3.66684637e-19, -4.54499982e-02 , 4.94151353e-19 ,-4.54499982e-02,4.54999268e-19,3.41993263e-01])
+        offset_left = np.array([8.38016631e-02, -4.52312553e-02,  4.56259977e-11, -4.54499981e-02,0, -4.54499982e-02])
+        offset_right = np.array([8.38016631e-02, -4.52312553e-02, 4.56259977e-11, -4.54499981e-02, 0, -4.54499982e-02])
+        joint_min_values = np.array([0, 0, 0, 0, 0, 0])  # 示例：六轴关节范围
+        joint_max_values = np.array([1.308, 1.47, 1.47, 1.47, 1.7, 0.6])
+        # print("joint names:", self.left_retargeting.optimizer.target_joint_names)
+
+        # Retarget 并重新排列关节顺序
+        # left_qpos = self.left_retargeting.retarget(left_hand_mat[tip_indices])[[4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
+        # right_qpos = self.right_retargeting.retarget(right_hand_mat[tip_indices])[
+        #     [4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]]
+        # reorder_indices = [0, 4, 6, 8, 10, 1, 5, 7, 9, 11, 2, 3]
+        reorder_indices = [4, 5, 6, 7, 10, 11, 8, 9, 0, 1, 2, 3]
+
+
+        left_qpos = self.left_retargeting.retarget(left_hand_mat[tip_indices])[reorder_indices]
+        right_qpos = self.right_retargeting.retarget(right_hand_mat[tip_indices])[reorder_indices]
+        # print("left_qpos",left_qpos)
+        # print("right_qpos",right_qpos)
+        # # 分别对前6个关节应用动态偏移
+        # left_qpos = apply_dynamic_offset(left_qpos, offset_left, joint_min_values, joint_max_values)
+        # right_qpos = apply_dynamic_offset(right_qpos, offset_right, joint_min_values, joint_max_values)
+
 
         return head_rmat, left_pose, right_pose, left_qpos, right_qpos
 
@@ -255,14 +308,49 @@ class Sim:
 if __name__ == '__main__':
     teleoperator = VuerTeleop('inspire_hand.yml')
     simulator = Sim()
-
+    # server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    #
+    # server_socket.bind(("0.0.0.0", 12345))
+    # server_socket.listen(1)
+    # print("[*] 等待客户端连接...")
+    # # server_socket.setblocking(False)  # 设置非阻塞模式
+    # client_socket = None
+    # client_socket, addr = server_socket.accept()
     try:
         while True:
             head_rmat, left_pose, right_pose, left_qpos, right_qpos = teleoperator.step()
+            # 设置为单位阵
+            # head_rmat= np.identity(3)
+            # left_position = np.array([-0.6, 0.0, 1.6])
+            # right_position = np.array([0.6, 0.0, 1.6])
+            # left_orientation = np.array([0.0, 0.0, 0.0, 1.0])  # 单位四元数，无旋转
+            #
+            # left_pose = np.concatenate([left_position, left_orientation])
+            # right_pose=np.concatenate([right_position, left_orientation])
+            # left_qpos = np.array([0,0,0,1.47,1.47,0.0,0,0,0,0,0,0])
+            # # 食指，食指中间，中指，中指中间，小指，0，无名指，0，大拇指旋转，0，大拇指弯曲，0）
+            # right_qpos = np.array([0,0,0,0,1.47,0.0,0,0,0,0,1.47,0])
             left_img, right_img = simulator.step(head_rmat, left_pose, right_pose, left_qpos, right_qpos)
-            # np.copyto(teleoperator.img_array, np.hstack((right_img,left_img)))
-
             np.copyto(teleoperator.img_array, np.hstack((left_img, right_img)))
+            # print("right_qpos", right_qpos)
+            # right_qpos=np.array([1.47,0,0,0,1.47,0.0])
+            # try:
+            #     if client_socket is not None:
+            #
+            #         com_right_qpos = right_qpos[:6].tolist()
+            #         data_str = ','.join(map("{:.4f}".format, com_right_qpos)) + '\n'
+            #         client_socket.sendall(data_str.encode("utf-8"))
+            #         print(f"发送数据: {data_str.strip()}")
+            #     else:
+            #         pass
+            # except BrokenPipeError:
+            #     pass
+
+
+
     except KeyboardInterrupt:
         simulator.end()
+        teleoperator.shm.close()
+        teleoperator.shm.unlink()
         exit(0)

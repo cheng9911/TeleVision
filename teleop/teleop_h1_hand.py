@@ -103,14 +103,14 @@ class Sim:
         cube_asset_options.density = 10
         cube_asset = self.gym.create_box(self.sim, 0.05, 0.05, 0.05, cube_asset_options)
 
-        asset_root = "../assets"
-        left_asset_path = "inspire_hand/inspire_hand_left.urdf"
-        right_asset_path = "inspire_hand/inspire_hand_right.urdf"
+        asset_root = "/home/rocos/Documents/GitHub/TeleVision/assets/h1_inspire/urdf"
+        shared_asset_path = "h1_inspire.urdf"
+
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = True
         asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
-        left_asset = self.gym.load_asset(self.sim, asset_root, left_asset_path, asset_options)
-        right_asset = self.gym.load_asset(self.sim, asset_root, right_asset_path, asset_options)
+        left_asset = self.gym.load_asset(self.sim, asset_root, shared_asset_path, asset_options)
+        right_asset = self.gym.load_asset(self.sim, asset_root, shared_asset_path, asset_options)
         self.dof = self.gym.get_asset_dof_count(left_asset)
 
         # set up the env grid
@@ -258,7 +258,17 @@ if __name__ == '__main__':
 
     try:
         while True:
-            head_rmat, left_pose, right_pose, left_qpos, right_qpos = teleoperator.step()
+            # head_rmat, left_pose, right_pose, left_qpos, right_qpos = teleoperator.step()
+            head_rmat= np.identity(3)
+            left_position = np.array([-0.6, 0.0, 1.6])
+            right_position = np.array([0.6, 0.0, 1.6])
+            left_orientation = np.array([0.0, 0.0, 0.0, 1.0])  # 单位四元数，无旋转
+
+            left_pose = np.concatenate([left_position, left_orientation])
+            right_pose=np.concatenate([right_position, left_orientation])
+            left_qpos = np.array([0,0,0,1.47,1.47,0.0,0,0,0,0,0,0])
+            # 食指，食指中间，中指，中指中间，小指，0，无名指，0，大拇指旋转，0，大拇指弯曲，0）
+            right_qpos = np.array([0,0,0,0,1.47,0.0,0,0,0,0,1.47,0])
             left_img, right_img = simulator.step(head_rmat, left_pose, right_pose, left_qpos, right_qpos)
             # np.copyto(teleoperator.img_array, np.hstack((right_img,left_img)))
 

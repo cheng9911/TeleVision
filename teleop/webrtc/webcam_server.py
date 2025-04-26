@@ -71,7 +71,7 @@ def create_local_tracks(play_from, decode):
                     "video=Integrated Camera", format="dshow", options=options
                 )
             else:
-                webcam = MediaPlayer("/dev/video0", format=None, options=options)
+                webcam = MediaPlayer("/dev/video10", format=None, options=options)
             relay = MediaRelay()
         return None, relay.subscribe(webcam.video)
 
@@ -113,6 +113,7 @@ async def offer(request):
     audio, video = create_local_tracks(
         Args.play_from, decode=not Args.play_without_decoding
     )
+
 
     if audio:
         audio_sender = pc.addTrack(audio)
