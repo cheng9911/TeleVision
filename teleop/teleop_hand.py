@@ -220,7 +220,6 @@ class Sim:
         self.gym.render_all_camera_sensors(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
 
-
         curr_lookat_offset = self.cam_lookat_offset @ head_rmat.T
         curr_left_offset = self.left_cam_offset @ head_rmat.T
         curr_right_offset = self.right_cam_offset @ head_rmat.T
@@ -259,10 +258,10 @@ if __name__ == '__main__':
     try:
         while True:
             head_rmat, left_pose, right_pose, left_qpos, right_qpos = teleoperator.step()
+            
             left_img, right_img = simulator.step(head_rmat, left_pose, right_pose, left_qpos, right_qpos)
-            # np.copyto(teleoperator.img_array, np.hstack((right_img,left_img)))
-
             np.copyto(teleoperator.img_array, np.hstack((left_img, right_img)))
+            # time.sleep(1)
     except KeyboardInterrupt:
         simulator.end()
         exit(0)
